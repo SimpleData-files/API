@@ -383,9 +383,13 @@ namespace simpledata
                             {
                                 file.close();
                                 out.close();
-
+                                
                                 // Delete ".simpdat_buf.simpdat" file
-
+                                #if defined(__unix) || defined(unix__) || defined(__linux) || (defined(__APPLE__) && defined(__MACH__))
+                                   system("rm .simpdat_buf.simpdat");
+                                #elif defined(__WIN32)
+                                   system("del /f .simpdat_buf.simpdat");
+                                #endif
                                 return 3;
                             }
 
