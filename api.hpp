@@ -12,7 +12,7 @@
 
 #include <type_traits>
 
-#define SIMPLEDATA_API_VERSION "1.0"
+#define SIMPLEDATA_API_VERSION "2.0"
 
 bool stob(const std::string& string)
 {
@@ -66,6 +66,71 @@ namespace simpledata
                 }
                 string = buffer;
             }
+
+            // Used in fetch()
+            static std::string decomment(const std::string string, const std::string type = "other")
+            {
+                std::string buffer;
+
+                // Character we want to look for - brackets only for readability
+                char lookfor = (type == "string") ? '\"' : '#';
+
+                int i = (type == "string") ? 1 : 0;
+                if (i == 1) buffer += string[0];
+
+                for (; i < string.size(); i++)
+                {
+                    if (string[i] == lookfor)
+                    {
+                        if (lookfor != '#') lookfor = '#';
+                        else break;
+                    }
+                    buffer += string[i];
+                }
+
+                simpledata::api::remove_trailing(buffer);
+                return buffer;
+            }
+
+            // Used in update()
+            static std::string preserve_comment(const std::string string)
+            {
+                std::string comment = "";
+                bool found_comment = false;
+
+                char lookfor = (string[0] == '\'' || string[0] == '\"') ? string[0] : '#';
+                for (int i = (lookfor == string[0]) ? 1 : 0; i < string.size(); i++)
+                {
+                    if (string[i] == lookfor)
+                    {
+                        if (lookfor == '#') found_comment = true;
+                        else lookfor = '#';
+                    }
+                    if (found_comment) comment += string[i];
+                }
+
+                return comment;
+            }
+
+            // Returns the characters outside of the allotted area - used in update()
+            static std::string outside_substr(const char first, const char last, const std::string string)
+            {
+                int start_index = 0;
+                char lookfor = first;
+                bool first_found = false, last_found = false, print = true;
+
+                std::string buffer = "";
+                for (int i = 0; i < string.size(); i++)
+                {
+                    if (string[i] == first) first_found = true;
+                    else if (string[i] == last) last_found = true;
+
+                    if (!first_found || last_found) buffer += string[i];
+                }
+
+                return buffer;
+            }
+
         public:
             std::string errstr()
             {
@@ -129,15 +194,15 @@ namespace simpledata
                             {
                                 if (type == "int")
                                 {
-                                    value_dest = stoi(val_buffer);
+                                    value_dest = stoi(simpledata::api::decomment(val_buffer));
                                 }
                                 else if (type == "bool")
                                 {
-                                    value_dest = stob(val_buffer);
+                                    value_dest = stob(simpledata::api::decomment(val_buffer));
                                 }
                                 else if (type == "float")
                                 {
-                                    value_dest = stof(val_buffer);
+                                    value_dest = stof(simpledata::api::decomment(val_buffer));
                                 }
                                 else if (type == "char")
                                 {
@@ -148,8 +213,9 @@ namespace simpledata
                                     if (type == "string")
                                     {
                                         std::string str_buffer;
+                                        std::string decommented = simpledata::api::decomment(val_buffer, "string");
 
-                                        for (int i = 1; i < val_buffer.size() && val_buffer[i] != '"'; i++) str_buffer += val_buffer[i];
+                                        for (int i = 1; i < decommented.size() && decommented[i] != '"'; i++) str_buffer += decommented[i];
                                         value_dest = str_buffer;
                                     }
                                 }
@@ -204,10 +270,14 @@ namespace simpledata
 
                             if (current_identifier == identifier)
                             {
-                                if (type == "bool" || type == "boolean")
+                                std::string value = outside_substr(line[0], ':', line);
+                                if constexpr (std::is_convertible<T, bool>::value)
                                 {
-                                    if (new_val) out << identifier << ": true";
-                                    else out << identifier << ": false";
+                                    if (type == "bool" || type == "boolean")
+                                    {
+                                        if (new_val) out << identifier << ": true";
+                                        else out << identifier << ": false";
+                                    }
                                 }
                                 else if (type == "char")
                                 {
@@ -236,6 +306,7 @@ namespace simpledata
                                     return 3;
                                 }
 
+                                out << " " << simpledata::api::preserve_comment(value);
                                 found = true;
                             }
                             else
@@ -259,6 +330,7 @@ namespace simpledata
 
                     return err;
                 }
+                return err;
             }
 
             // Static versions of update() and fetch()
@@ -291,21 +363,20 @@ namespace simpledata
                         for (int i = id_end + 1; i < line.size(); i++) value_buffer += line[i];
 
                         simpledata::api::remove_leading(value_buffer);
-                        simpledata::api::remove_trailing(value_buffer);
 
                         try
                         {
                             if (type == "int")
                             {
-                                value_dest = stoi(value_buffer);
+                                value_dest = stoi(simpledata::api::decomment(value_buffer));
                             }
                             else if (type == "bool")
                             {
-                                value_dest = stob(value_buffer);
+                                value_dest = stob(simpledata::api::decomment(value_buffer));
                             }
                             else if (type == "float")
                             {
-                                value_dest = stof(value_buffer);
+                                value_dest = stof(simpledata::api::decomment(value_buffer));
                             }
                             else if (type == "char")
                             {
@@ -316,8 +387,9 @@ namespace simpledata
                                 if (type == "string")
                                 {
                                     std::string str_buffer;
+                                    std::string decommented = simpledata::api::decomment(value_buffer, "string");
 
-                                    for (int i = 1; i < value_buffer.size() && value_buffer[i] != '"'; i++) str_buffer += value_buffer[i];
+                                    for (int i = 1; i < decommented.size() && decommented[i] != '"'; i++) str_buffer += decommented[i];
                                     value_dest = str_buffer;
                                 }
                             }
@@ -362,10 +434,14 @@ namespace simpledata
 
                         if (current_identifier == identifier)
                         {
-                            if (type == "bool" || type == "boolean")
+                            std::string value = outside_substr(line[0], ':', line);
+                            if constexpr (std::is_convertible<T, bool>::value)
                             {
-                                if (new_val) out << identifier << ": true";
-                                else out << identifier << ": false";
+                                if (type == "bool" || type == "boolean")
+                                {
+                                    if (new_val) out << identifier << ": true";
+                                    else out << identifier << ": false";
+                                }
                             }
                             else if (type == "char")
                             {
@@ -383,16 +459,18 @@ namespace simpledata
                             {
                                 file.close();
                                 out.close();
-                                
+
                                 // Delete ".simpdat_buf.simpdat" file
                                 #if defined(__unix) || defined(unix__) || defined(__linux) || (defined(__APPLE__) && defined(__MACH__))
-                                   system("rm .simpdat_buf.simpdat");
+                                    system("rm .simpdat_buf.simpdat");
                                 #elif defined(__WIN32)
-                                   system("del /f .simpdat_buf.simpdat");
+                                    system("del /f .simpdat_buf.simpdat");
                                 #endif
+
                                 return 3;
                             }
 
+                            out << " " << simpledata::api::preserve_comment(value);
                             found = true;
                         }
                         else
