@@ -7,7 +7,14 @@
 import os
 import subprocess
 
-SIMPLEDATA_API_VERSION = "1.0"
+SIMPLEDATA_API_VERSION = "2.0"
+
+# Delete the buffer file
+def simpledata_remove() -> None:
+	if os.name == "posix":
+		subprocess.run(["rm", ".simpdat_buf.simpdat"])
+	else:
+		subprocess.run(["del", "/f", ".simpdat_buf.simpdat"])
 
 # Functions to remove leading and trailing whitespace
 def simpledata_remove_leading(string) -> str:
@@ -49,6 +56,78 @@ def simpledata_remove_trailing(string) -> str:
 		i -= 1
 
 	return rev
+
+# For comments after values
+def simpledata_decomment(string, type) -> str:
+	buffer = ""
+
+	# Character we want to look for:
+	lookfor = '\"' if (type == "string") else '#'
+
+	i = 1 if (type == "string") else 0
+	if i == 0:
+		buffer += string[0]
+
+	for i in range(len(string)):
+		if string[i] == lookfor:
+			if lookfor != '#':
+				lookfor = '#'
+			else:
+				break
+		buffer += string[i]
+		i += 1
+
+	buffer = simpledata_remove_leading(buffer)
+	return buffer
+
+def simpledata_preserve_comment(string) -> str:
+	buffer = ""
+	comment = ""
+
+	i = 1
+	found_comment = False
+	while i < len(string):
+		buffer += string[i]
+		i += 1
+
+	buffer = simpledata_remove_leading(buffer)
+	lookfor = string[0] if (string[0] == '\"' or string[0] == '\'') else '#'
+
+	i = 1 if (lookfor == string[0]) else 0
+	while i < len(string):
+		if string[i] == lookfor:
+			if lookfor == '#':
+				found_comment = True
+			else:
+				lookfor = '#'
+
+		if found_comment:
+			comment += string[i]
+
+		i += 1
+
+	return comment
+
+# Returns a string comprising of the characters outside of the allotted range - used in update()
+def outside_substr(first, last, string) -> str:
+	start_index = 0
+	lookfor = first
+
+	first_found = False
+	last_found = False
+	print = True
+
+	buffer = ""
+	for i in range(len(string)):
+		if string[i] == first:
+			first_found = True
+		elif string[i] == last:
+			last_found = True
+
+		if first_found == False or last_found:
+			buffer += string[i]
+
+	return buffer
 
 errs = [
 	[1, "Invalid File"],
@@ -177,31 +256,44 @@ class simpledata():
 						current_id += line[i]
 
 					if identifier == current_id:
+
+						value = outside_substr(line[0], ':', line)
 						try:
 							if val_type == "bool" or val_type == "boolean":
-								if new_val == True:
-									write.write(current_id + ": true\n")
+								if new_val:
+									write.write(current_id + ": true")
 								else:
-									write.write(current_id + ": false\n")
+									write.write(current_id + ": false")
 							elif val_type == "char":
-								write.write(current_id + ": \'" + new_val + "\'\n")
+								write.write(current_id + ": \'" + new_val + "\'")
 							elif val_type == "string":
-								write.write(current_id + ": \"" + new_val + "\"\n")
+								write.write(current_id + ": \"" + new_val + "\"")
+							elif val_type == "int" or val_type == "integer" or val_type == "float"
+								write.write(current_id + ": " + new_val)
 							else:
-								write.write(current_id + ": " + new_val + "\n")
+								simpledata_remove()
+
+								write.close()
+								read.close()
+
+								return 3
 							found = True
 						except TypeError:
-							if os.name == "posix":
-								subprocess.run("rm", ".simpdat_buf.simpdat")
-							else:
-								subprocess.run("del", "/f", ".simpdat_buf.simpdat")
+							simpledata_remove()
+
+							write.close()
+							read.close()
 
 							return 3
+
+						write.write(" " + simpledata_preserve_comment(value) + "\n")
 					else:
 						write.write(line)
 				else:
 					write.write(line)
 
+			write.close()
+			read.close()
 			os.rename(".simpdat_buf.simpdat", this.file_name);
 
 			if found == True:
@@ -319,31 +411,43 @@ def simpledata_update(identifier, new_val, val_type, filename) -> int:
 					current_id += line[i]
 
 				if identifier == current_id:
+
+					value = outside_substr(line[0], ':', line)
 					try:
 						if val_type == "bool" or val_type == "boolean":
 							if new_val == True:
-								write.write(current_id + ": true\n")
+								write.write(current_id + ": true")
 							else:
-								write.write(current_id + ": false\n")
+								write.write(current_id + ": false")
 						elif val_type == "char":
-							write.write(current_id + ": \'" + new_val + "\'\n")
+							write.write(current_id + ": \'" + new_val + "\'")
 						elif val_type == "string":
-							write.write(current_id + ": \"" + new_val + "\"\n")
+							write.write(current_id + ": \"" + new_val + "\"")
+						elif val_type == "int" or val_type == "integer" or val_type == "float":
+							write.write(current_id + ": " + new_val)
 						else:
-							write.write(current_id + ": " + new_val + "\n")
+							simpledata_remove()
+
+							write.close()
+							read.close()
+
+							return 3
 						found = True
 					except TypeError:
-						if os.name == "posix":
-							subprocess.run(["rm", ".simpdat_buf.simpdat"])
-						else:
-							subprocess.run("del", "/f", ".simpdat_buf.simpdat")
+						simpledata_remove()
 
+						write.close()
+						read.close()
 						return 3
+
+					write.write(" " + simpledata_preserve_comment(value) + "\n")
 				else:
 					write.write(line)
 			else:
 				write.write(line)
 
+		write.close()
+		read.close()
 		os.rename(".simpdat_buf.simpdat", filename);
 
 		if found == True:
