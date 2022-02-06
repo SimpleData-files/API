@@ -11,8 +11,10 @@
 #include <fstream>
 
 #include <type_traits>
+#include <vector>
+#include <array>
 
-#define SIMPLEDATA_API_VERSION "2.0"
+#define SIMPLEDATA_API_VERSION "3.0"
 
 bool stob(const std::string& string)
 {
@@ -31,7 +33,8 @@ namespace simpledata
     const errorcodes errstr_data[] = {
         {1, "Invalid File"},
         {2, "Identifier Not Found"},
-        {3, "Invalid Type"}
+        {3, "Invalid Type"},
+        {4, "Invalid Template Argument"}
     };
 
     class api
@@ -155,7 +158,7 @@ namespace simpledata
                 file_name = file;
             }
 
-            // Constexpr makes conversions go weird, so we won't rely as much on template functions (std::is_convertible) for that
+            // Constexpr makes conversions go weird, so we won't rely as much on template functions (std::is_convertible) for them
             template <typename T>
             int fetch(const std::string identifier, T& value_dest, const std::string type)
             {
@@ -180,7 +183,6 @@ namespace simpledata
                             simpledata::api::remove_leading(id_buffer);
                             simpledata::api::remove_trailing(id_buffer);
 
-                            // No need to parse the value if the identifier isn't the one being searched for
                             if (identifier != id_buffer) continue;
                             else found = true;
 
@@ -192,39 +194,110 @@ namespace simpledata
 
                             try
                             {
-                                if (type == "int")
-                                {
-                                    value_dest = stoi(simpledata::api::decomment(val_buffer));
-                                }
-                                else if (type == "bool")
-                                {
-                                    value_dest = stob(simpledata::api::decomment(val_buffer));
-                                }
-                                else if (type == "float")
-                                {
-                                    value_dest = stof(simpledata::api::decomment(val_buffer));
-                                }
-                                else if (type == "char")
-                                {
-                                    value_dest = val_buffer[1];
-                                }
-                                else if constexpr (std::is_convertible<T, std::string>::value)
+                                if constexpr (std::is_convertible<T, std::string>::value)
                                 {
                                     if (type == "string")
                                     {
-                                        std::string str_buffer;
-                                        std::string decommented = simpledata::api::decomment(val_buffer, "string");
+                                        std::string str_buffer, decommented = simpledata::api::decomment(val_buffer, "string");
 
-                                        for (int i = 1; i < decommented.size() && decommented[i] != '"'; i++) str_buffer += decommented[i];
+                                        for (int i = 1; i < decommented.size() && decommented[i] != '\"'; i++) str_buffer += decommented[i];
                                         value_dest = str_buffer;
+                                    }
+                                    else
+                                    {
+                                        err = 4;
+
+                                        copy.close();
+                                        return err;
+                                    }
+                                }
+                                else if constexpr (std::is_convertible<T, std::vector<std::string> >::value)
+                                {
+                                    if (type == "array")
+                                    {
+                                        std::string buffer_str = "";
+
+                                        // Boolean flags to smother false positives
+                                        bool str = false, ch = false;
+                                        for (int i = 1; i < val_buffer.size(); i++)
+                                        {
+                                            if (val_buffer[i] != ',')
+                                            {
+                                                if (val_buffer[i] == '\"')
+                                                {
+                                                    if (str) str = false;
+                                                    else str = true;
+                                                }
+                                                else if (val_buffer[i] == '\'')
+                                                {
+                                                    if (ch) ch = false;
+                                                    else ch = true;
+                                                }
+                                                if (val_buffer[i] == ']' && !str && !ch)
+                                                {
+                                                    simpledata::api::remove_leading(buffer_str);
+                                                    simpledata::api::remove_trailing(buffer_str);
+
+                                                    // Removing single quotes and double quotes
+                                                    if (buffer_str[0] == '\"' || buffer_str[0] == '\'')
+                                                    {
+                                                        std::string decommented = simpledata::api::decomment(buffer_str), b = "";
+                                                        for (int j = 1; j < decommented.size() - 1; j++) b += decommented[j];
+                                                        buffer_str = b;
+                                                    }
+                                                    value_dest.push_back(buffer_str);
+                                                    break;
+                                                }
+                                                buffer_str += val_buffer[i];
+                                            }
+                                            else
+                                            {
+                                                simpledata::api::remove_leading(buffer_str);
+                                                simpledata::api::remove_trailing(buffer_str);
+
+                                                // Removing single and double quotes if present
+                                                if (buffer_str[0] == '\"' || buffer_str[0] == '\'')
+                                                {
+                                                    std::string decommented = simpledata::api::decomment(buffer_str), b = "";
+                                                    for (int j = 1; j < decommented.size() - 1; j++) b += decommented[j];
+                                                    buffer_str = b;
+                                                }  
+                                                value_dest.push_back(buffer_str);
+                                                buffer_str = "";
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        err = 4;
+
+                                        copy.close();
+                                        return err;
                                     }
                                 }
                                 else
                                 {
-                                    err = 3;
-                                    copy.close();
+                                    switch(type[0])
+                                    {
+                                        case 'i':
+                                            value_dest = stoi(simpledata::api::decomment(val_buffer));
+                                        break;
+                                        case 'b':
+                                            value_dest = stob(simpledata::api::decomment(val_buffer));
+                                        break;
+                                        case 'f':
+                                            value_dest = stof(simpledata::api::decomment(val_buffer));
+                                        break;
+                                        case 'c':
+                                            value_dest = val_buffer[1];
+                                        break;
+                                        default:
+                                            err = 3;
 
-                                    return err;
+                                            copy.close();
+                                            return err;
+                                        break;
+                                    }
                                 }
                             }
                             catch (std::invalid_argument e)
@@ -243,6 +316,9 @@ namespace simpledata
                     copy.close();
                     return err;
                 }
+
+                // Just to keep the warnings away, will never actually execute
+                return 0;
             }
 
             template <typename T>
@@ -277,6 +353,46 @@ namespace simpledata
                                     {
                                         if (new_val) out << identifier << ": true";
                                         else out << identifier << ": false";
+                                    }
+                                }
+                                else if constexpr (std::is_convertible<T, std::vector<std::string> >::value)
+                                {
+                                    if (type == "array")
+                                    {
+                                        out << identifier << ": [";
+                                        for (int i = 0; i < new_val.size(); i++)
+                                        {
+                                            std::string output = "";
+                                            if (new_val[i].size() == 1 && !(new_val[i] >= "0" && new_val[i] <= "9"))
+                                            {
+                                                output = '\'' + new_val[i] + '\'';
+                                            }
+                                            else
+                                            {
+                                                int numerals = 0;
+                                                for (int j = 0; j < new_val[i].size(); j++)
+                                                {
+                                                    if ((new_val[i][j] >= '0' && new_val[i][j] <= '9') || new_val[i][j] == '.') numerals++;
+                                                }
+                                                if (numerals == new_val[i].size() || new_val[i] == "true" || new_val[i] == "false")
+                                                {
+                                                    output = new_val[i];
+                                                }
+                                                else
+                                                {
+                                                    output = '\"' + new_val[i] + '\"';
+                                                }
+                                            }
+
+                                            out << output;
+                                            if (i != new_val.size() - 1) out << ", ";
+                                        }
+                                        out << ']';
+                                    }
+                                    else
+                                    {
+                                        err = 4;
+                                        return err;
                                     }
                                 }
                                 else if (type == "char")
@@ -348,7 +464,7 @@ namespace simpledata
 
                     if (line != "" && line != "\n" && line[0] != '#')
                     {
-                        std::string current_identifier, value_buffer;
+                        std::string current_identifier, val_buffer;
 
                         int id_end = 0;
                         for (; id_end < line.size() && line[id_end] != ':'; id_end++) current_identifier += line[id_end];
@@ -360,43 +476,111 @@ namespace simpledata
                         else found = true;
 
                         // getting the value
-                        for (int i = id_end + 1; i < line.size(); i++) value_buffer += line[i];
+                        for (int i = id_end + 1; i < line.size(); i++) val_buffer += line[i];
 
-                        simpledata::api::remove_leading(value_buffer);
+                        simpledata::api::remove_leading(val_buffer);
 
                         try
                         {
-                            if (type == "int")
-                            {
-                                value_dest = stoi(simpledata::api::decomment(value_buffer));
-                            }
-                            else if (type == "bool")
-                            {
-                                value_dest = stob(simpledata::api::decomment(value_buffer));
-                            }
-                            else if (type == "float")
-                            {
-                                value_dest = stof(simpledata::api::decomment(value_buffer));
-                            }
-                            else if (type == "char")
-                            {
-                                value_dest = value_buffer[1];
-                            }
-                            else if constexpr (std::is_convertible<T, std::string>::value)
+                            if constexpr (std::is_convertible<T, std::string>::value)
                             {
                                 if (type == "string")
                                 {
-                                    std::string str_buffer;
-                                    std::string decommented = simpledata::api::decomment(value_buffer, "string");
+                                    std::string str_buffer, decommented = simpledata::api::decomment(val_buffer, "string");
 
-                                    for (int i = 1; i < decommented.size() && decommented[i] != '"'; i++) str_buffer += decommented[i];
+                                    for (int i = 1; i < decommented.size() && decommented[i] != '\"'; i++) str_buffer += decommented[i];
                                     value_dest = str_buffer;
+                                }
+                                else
+                                {
+                                    file.close();
+                                    return 4;
+                                }
+                            }
+                            else if constexpr (std::is_convertible<T, std::vector<std::string> >::value)
+                            {
+                                if (type == "array")
+                                {
+                                    std::string buffer_str = "";
+
+                                    // Boolean flags to smother false positives
+                                    bool str = false, ch = false;
+                                    for (int i = 1; i < val_buffer.size(); i++)
+                                    {
+                                        if (val_buffer[i] != ',')
+                                        {
+                                            if (val_buffer[i] == '\"')
+                                            {
+                                                if (str) str = false;
+                                                else str = true;
+                                            }
+                                            else if (val_buffer[i] == '\'')
+                                            {
+                                                if (ch) ch = false;
+                                                else ch = true;
+                                            }
+                                            if (val_buffer[i] == ']' && !str && !ch)
+                                            {
+                                                simpledata::api::remove_leading(buffer_str);
+                                                simpledata::api::remove_trailing(buffer_str);
+
+                                                // Removing single and double quotes if present
+                                                if (buffer_str[0] == '\'' || buffer_str[0] == '\"')
+                                                {
+                                                    std::string decommented = simpledata::api::decomment(buffer_str), b = "";
+                                                    for (int j = 1; j < decommented.size() - 1; j++) b += decommented[j];
+                                                    buffer_str = b;
+                                                }
+                                                value_dest.push_back(buffer_str);
+                                                break;
+                                            }
+
+                                            buffer_str += val_buffer[i];
+                                        }
+                                        else
+                                        {
+                                            simpledata::api::remove_leading(buffer_str);
+                                            simpledata::api::remove_trailing(buffer_str);
+
+                                            if (buffer_str[0] == '\"' || buffer_str[0] == '\'')
+                                            {
+                                                std::string decommented = simpledata::api::decomment(buffer_str), b = "";
+                                                for (int j = 1; j < decommented.size() - 1; j++) b += decommented[j];
+                                                buffer_str = b;
+                                            }
+
+                                            value_dest.push_back(buffer_str);
+                                            buffer_str = "";
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    file.close();
+                                    return 4;
                                 }
                             }
                             else
                             {
-                                file.close();
-                                return 3;
+                                switch(type[0])
+                                {
+                                    case 'i':
+                                        value_dest = stoi(simpledata::api::decomment(val_buffer));
+                                    break;
+                                    case 'b':
+                                        value_dest = stob(simpledata::api::decomment(val_buffer));
+                                    break;
+                                    case 'f':
+                                        value_dest = stof(simpledata::api::decomment(val_buffer));
+                                    break;
+                                    case 'c':
+                                        value_dest = val_buffer[1];
+                                    break;
+                                    default:
+                                        file.close();
+                                        return 3;
+                                    break;
+                                }
                             }
                         }
                         catch (std::invalid_argument e)
@@ -441,6 +625,45 @@ namespace simpledata
                                 {
                                     if (new_val) out << identifier << ": true";
                                     else out << identifier << ": false";
+                                }
+                            }
+                            else if constexpr (std::is_convertible<T, std::vector<std::string> >::value)
+                            {
+                                if (type == "array")
+                                {
+                                    out << identifier << ": [";
+                                    for (int i = 0; i < new_val.size(); i++)
+                                    {
+                                        std::string output = "";
+                                        if (new_val[i].size() == 1 && !(new_val[i] >= "0" && new_val[i] <= "9"))
+                                        {
+                                            output = '\'' + new_val[i] + '\'';
+                                        }
+                                        else
+                                        {
+                                            int numerals = 0;
+                                            for (int j = 0; j < new_val[i].size(); j++)
+                                            {
+                                                if ((new_val[i][j] >= '0' && new_val[i][j] <= '9') || new_val[i][j] == '.') numerals++;
+                                            }
+                                            if (numerals == new_val[i].size() || new_val[i] == "true" || new_val[i] == "false")
+                                            {
+                                                output = new_val[i];
+                                            }
+                                            else
+                                            {
+                                                output = '\"' + new_val[i] + '\"';
+                                            }
+                                        }
+
+                                        out << output;
+                                        if (i != new_val.size() - 1) out << ", ";
+                                    }
+                                    out << ']';
+                                }
+                                else
+                                {
+                                    return 4;
                                 }
                             }
                             else if (type == "char")
