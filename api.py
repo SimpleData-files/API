@@ -7,7 +7,7 @@
 import os
 import subprocess
 
-SIMPLEDATA_API_VERSION = "2.0"
+SIMPLEDATA_API_VERSION = "3.0"
 
 # Delete the buffer file
 def simpledata_remove() -> None:
@@ -225,12 +225,97 @@ class simpledata():
 						return None
 				elif type == "char":
 					return val_buffer[1]
+				elif  type == "array":
+					i = 1
+					val = []
+					element = ""
+
+					# String and char flags so the program knows when ']' is part of a value and not the end of the array
+					string = False
+					ch = False
+					while i < len(val_buffer):
+						if val_buffer[i] != ',':
+
+							# Configuring the flags' state - yes it's very messy, this is Python
+							if val_buffer[i] == '\"':
+								if string:
+									string = False
+								else:
+									string = True
+							elif val_buffer[i] == '\'':
+								if ch:
+									ch = False
+								else:
+									ch = True
+
+
+							if val_buffer[i] == ']' and string == False and ch == False:
+								element = simpledata_remove_leading(element)
+								element = simpledata_remove_trailing(element)
+
+								# Setting value to identified type and removing '\"' and '\''
+								if element[0] == '\"' or element[0] == '\'':
+									index = 1
+									buffer_val = ""
+
+									while index < len(element) - 1:
+										buffer_val += element[index]
+										index += 1
+
+									element = buffer_val
+								elif element == "true" or element == 'false':
+									if element == "true":
+										element = True
+									else:
+										element = False
+								else:
+									try:
+										element = int(element)
+									except ValueError:
+										this.err_code = 3
+										return []								
+
+								val.insert(len(val), element)
+								break
+							element += val_buffer[i]	
+						else:
+							element = simpledata_remove_leading(element)
+							element = simpledata_remove_trailing(element)
+
+							# Setting value to identified type
+							if element[0] == '\"' or element[0] == '\'':
+								index = 1
+								buffer_val = ""
+
+								while index < len(element) - 1:
+									buffer_val += element[index]
+									index += 1
+
+								element = buffer_val
+							elif element == "true" or element == 'false':
+								if element == "true":
+									element = True
+								else:
+									element = False
+							else:
+								try:
+									element = int(element)
+								except ValueError:
+									this.err_code = 3
+									return []
+
+							val.insert(len(val), element)
+							element = ""
+						i += 1
+
+					return val
 				else:
 					i = 1
 					str_buffer = ""
 
-					while i < len(val_buffer) - 1:
-						str_buffer += val_buffer[i]
+					string = simpledata_remove_trailing(simpledata_decomment(val_buffer, "string"))
+					while i < len(string) - 1:
+						str_buffer += string[i]
 						i += 1
 
 					return str_buffer
@@ -268,8 +353,36 @@ class simpledata():
 								write.write(current_id + ": \'" + new_val + "\'")
 							elif val_type == "string":
 								write.write(current_id + ": \"" + new_val + "\"")
-							elif val_type == "int" or val_type == "integer" or val_type == "float"
+							elif val_type == "int" or val_type == "integer" or val_type == "float":
 								write.write(current_id + ": " + new_val)
+							elif val_type == "array":
+								write.write(current_id + ': [')
+								for i, item in enumerate(new_val):
+									if len(str(item)) == 1:
+										numbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+										numeric = False
+
+										for number in numbers:
+											if item == number:
+												numeric = True
+
+										if numeric == False:
+											item = '\'' + str(item) + '\'';
+									elif item == True or item == False:
+										if item:
+											item = True
+										else:
+											item = False
+									else:
+										try:
+											test = int(item)
+										except ValueError:
+											item = '\"' + str(item) + '\"'
+
+									write.write(str(item))
+									if i != len(new_val) - 1:
+										write.write(", ")
+								write.write(']')
 							else:
 								simpledata_remove()
 
@@ -378,12 +491,94 @@ def simpledata_fetch(identifier, filename, type) -> simpledata_fetch_ret:
 						return simpledata_fetch_ret(0, False)
 				elif type == "char":
 					return simpledata_fetch_ret(0, val_buffer[1])
+				elif  type == "array":
+					i = 1
+					val = []
+					element = ""
+
+					# String and char flags so the program knows when ']' is part of a value and not the end of the array
+					string = False
+					ch = False
+					while i < len(val_buffer):
+						if val_buffer[i] != ',':
+
+							# Configuring the flags' state - yes it's very messy, this is Python
+							if val_buffer[i] == '\"':
+								if string:
+									string = False
+								else:
+									string = True
+							elif val_buffer[i] == '\'':
+								if ch:
+									ch = False
+								else:
+									ch = True
+
+							if val_buffer[i] == ']' and string == False and ch == False:
+								element = simpledata_remove_leading(element)
+								element = simpledata_remove_trailing(element)
+
+								# Setting value to identified type
+								if element[0] == '\"' or element[0] == '\'':
+									index = 1
+									buffer_val = ""
+
+									while index < len(element) - 1:
+										buffer_val += element[index]
+										index += 1
+
+									element = buffer_val
+								elif element == "true" or element == 'false':
+									if element == "true":
+										element = True
+									else:
+										element = False
+								else:
+									try:
+										element = int(element)
+									except ValueError:
+										return simpledata_fetch_ret(3, [])								
+
+								val.insert(len(val), element)
+								break
+							element += val_buffer[i]	
+						else:
+							element = simpledata_remove_leading(element)
+							element = simpledata_remove_trailing(element)
+
+							# Setting value to identified type
+							if element[0] == '\"' or element[0] == '\'':
+								index = 1
+								buffer_val = ""
+
+								while index < len(element) - 1:
+									buffer_val += element[index]
+									index += 1
+
+								element = buffer_val
+							elif element == "true" or element == 'false':
+								if element == "true":
+									element = True
+								else:
+									element = False
+							else:
+								try:
+									element = int(element)
+								except ValueError:
+									return simpledata_fetch_ret(3, [])					
+
+							val.insert(len(val), element)
+							element = ""
+						i += 1
+						
+					return simpledata_fetch_ret(0, val)				
 				else:
 					i = 1
 					str_buffer = ""
+					copy = simpledata_remove_trailing(simpledata_decomment(val_buffer, "string"))
 
-					while i < len(val_buffer) - 1:
-						str_buffer += val_buffer[i]
+					while i < len(copy) - 1:
+						str_buffer += copy[i]
 						i += 1
 
 					return simpledata_fetch_ret(0, str_buffer)
@@ -395,7 +590,7 @@ def simpledata_fetch(identifier, filename, type) -> simpledata_fetch_ret:
 	except FileNotFoundError:
 		return simpledata_fetch_ret(1, None)
 
-def simpledata_update(identifier, new_val, val_type, filename) -> int:
+def simpledata_update(identifier, new_val, filename, val_type) -> int:
 	try:
 		read = open(filename, "r")
 		write = open(".simpdat_buf.simpdat", "w")
@@ -425,6 +620,35 @@ def simpledata_update(identifier, new_val, val_type, filename) -> int:
 							write.write(current_id + ": \"" + new_val + "\"")
 						elif val_type == "int" or val_type == "integer" or val_type == "float":
 							write.write(current_id + ": " + new_val)
+						elif val_type == "array":
+							write.write(current_id + ': [')
+							for i, item in enumerate(new_val):
+								if len(str(item)) == 1:
+									numbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+									numeric = False
+
+									for number in numbers:
+										if item == number:
+											numeric = True
+
+										if numeric == False:
+											item = '\'' + str(item) + '\'';
+											break
+								elif item == True or item == False:
+									if item:
+										item = True
+									else:
+										item = False
+								else:
+									try:
+										test = int(item)
+									except ValueError:
+										item = '\"' + str(item) + '\"'
+
+								write.write(str(item))
+								if i != len(new_val) - 1:
+									write.write(", ")
+							write.write(']')							
 						else:
 							simpledata_remove()
 
